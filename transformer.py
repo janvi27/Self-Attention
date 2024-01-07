@@ -54,6 +54,9 @@ class Transformer(nn.Module):
         self.Q, self.K, self.V = nn.Linear(self.word_dim, dq, bias=False), \
             nn.Linear(self.word_dim, dq, bias=False), \
             nn.Linear(self.word_dim, dv, bias=False)
+        nn.init.kaiming_normal_(self.Q.weight)
+        nn.init.kaiming_normal_(self.K.weight)
+        nn.init.kaiming_normal_(self.V.weight)
         self.Softmax1 = nn.Softmax(dim=2)
         self.FFN = nn.Sequential(
             nn.Linear(self.word_dim, 64),
@@ -64,8 +67,8 @@ class Transformer(nn.Module):
         self.LayerNorm2 = nn.LayerNorm(64)
         self.Layer2 = nn.Linear(MAX_SEQ_LEN * self.word_dim, 1)
         self.Classifier = nn.Sequential(
-            nn.Linear(MAX_SEQ_LEN * self.word_dim, 32),
-            nn.ReLU(),
+            nn.Linear(MAX_SEQ_LEN, 32),
+            nn.PReLU(),
             nn.Linear(32, 2)
         )
     
@@ -80,13 +83,14 @@ class Transformer(nn.Module):
         attn = self.LayerNorm1(data + attn)
         out = self.FFN(attn)
         out = self.LayerNorm2(out + attn)
-        out = out.view(-1, MAX_SEQ_LEN * out.shape[-1])
+        out = out.sum(dim=2) / out.shape[2]
+        # out = out.view(-1, MAX_SEQ_LEN * out.shape[-1])
         out = self.Classifier(out)
         return out
 
 
 def training(x, y):
-    NUM_EPOCHS = 50
+    NUM_EPOCHS = 1
     y = torch.from_numpy(np.array(y['target']))
     encoder = Encoding()
     # seq_len = np.array(x['text'].apply(lambda tweet: len(tweet.split())))
@@ -96,21 +100,26 @@ def training(x, y):
     for i, row in x.iterrows():
         data[i, :], mask[i] = encoder.encoding(row['text'])  # len(x) * MAX_SEQ_LEN
     transformer = Transformer(dq=64, embed_dim=encoder.embed_dim, dv=64, word_dim=64).to("cpu")
-    optimizer = torch.optim.Adam(transformer.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(transformer.parameters(), lr=0.0001)
     loss = torch.nn.CrossEntropyLoss()
     history = {'loss': [], 'accuracy': [], 'f1': []}
     # Training
+    batch_size = 64
     for epoch in range(NUM_EPOCHS):
-        logits = transformer(data, mask).view(y.shape[0], 2)
-        prob = torch.sigmoid(logits)
-        y_pred = prob.argmax(1)
-        print('Min, Max: ', y_pred.min(), y_pred.max())
-        acc, f1 = binary_accuracy(y_pred, y), binary_f1_score(y_pred, y)
-        cost = loss(logits, y)
-        print('Epoch: ', epoch, '; Loss: ', cost.item(), '; Accuracy: ', acc.item(), '; F1 Score: ', f1.item())
-        history['loss'].append(cost.item())
-        history['accuracy'].append(acc.item())
-        history['f1'].append(f1.item())
-        optimizer.zero_grad()
-        cost.backward()
-        optimizer.step()
+        print('Epoch: ', epoch)
+        for i in range(0, len(x) - batch_size, batch_size):
+            start = i
+            end = i + batch_size if i + batch_size < len(x) else len(x)
+            batch, target = data[start:end], y[start:end]
+            logits = transformer(batch, mask[start:end]).view(target.shape[0], 2)
+            prob = nn.Softmax(dim=1)(logits)
+            y_pred = prob.argmax(1)
+            acc, f1 = binary_accuracy(y_pred, target), binary_f1_score(y_pred, target)
+            cost = loss(logits, target)
+            print('Loss: ', cost.item(), '; Accuracy: ', acc.item(), '; F1 Score: ', f1.item())
+            history['loss'].append(cost.item())
+            history['accuracy'].append(acc.item())
+            history['f1'].append(f1.item())
+            optimizer.zero_grad()
+            cost.backward()
+            optimizer.step()

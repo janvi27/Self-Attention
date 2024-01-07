@@ -74,7 +74,7 @@ def train_nn(X, y):
 
 def plot_f1(history, f1):
     fig, axes = plt.subplots(2, 1)
-    fig.tight_layout(pad=2)
+    fig.tight_layout(pad=2.5)
     epochs = list(range(len(history)))
     title = ['Training Loss', 'F1-Score']
     data = [history, f1]
