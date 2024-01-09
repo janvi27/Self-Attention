@@ -83,7 +83,7 @@ def plot_f1(history, f1):
         axes[i].set_title(title[i])
         axes[i].set_xlabel('Epochs')
         axes[i].set_ylabel(title[i])
-    fig.savefig('plot_f1.png')
+    fig.savefig('./plots/plot_f1.png')
 
 
 def submit(model, encode):
